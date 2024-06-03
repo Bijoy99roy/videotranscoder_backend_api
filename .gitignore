@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 
 .env
+
+*.ts
+
+*.mp4
+*.m3u8
