@@ -10,7 +10,26 @@ const prisma = new PrismaClient()
 const uploadRouter = express.Router();
 
 const redisClient = createClient()
+const redisSubscriber = createClient();
 
+// Handle errors and connection events
+redisSubscriber.on('error', (err) => console.error('Redis subscriber error:', err));
+redisSubscriber.on('connect', () => console.log('Redis subscriber connected'));
+redisSubscriber.on('ready', () => {
+  console.log('Redis subscriber ready to subscribe');
+
+  // Subscribe to the 'transcode_complete' channel
+  redisSubscriber.subscribe('transcode_complete', (message: string) => {
+    
+      console.log(`Subscribed successfully to ${message} `);
+    
+  });
+});
+
+// Handle incoming messages
+redisSubscriber.on('message', (channel, message) => {
+  console.log(`Received message on channel ${channel}: ${message}`);
+});
 redisClient.on("error", (err) => {
     console.error("Redis client is not connected to the server: ", err)
 });
@@ -23,20 +42,8 @@ uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) =>
     // console.log(req.file)
     
     try{
-        const videoId = uuidv4();
-        let payload = {
-            fieldname: 'videoFile',
-            originalname: 'lake.mp4',
-            encoding: '7bit',
-            mimetype: 'video/mp4',
-            destination: './uploads',
-            filename: 'a75094e0-d685-49be-8f36-b84db1b45329.mp4',
-            videoPath: `E:\\Projects\\video_transcoder_backend_api\\api\\uploads\\${req.file?.filename}`,
-            size: 42992636,
-            outputPath:  `./uploads/hls-videos/${videoId}`,
-            videoId: videoId,
-            retries: 0
-        }
+        
+        
         const user = await prisma.user.findFirst({
             where:{
                 firstName: "Bijoy"
@@ -53,6 +60,28 @@ uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) =>
                 userId: user?.id as string
             }
         })
+
+        const videoQueue = await prisma.videoQueue.create({
+            data: {
+                userId: user?.id as string,
+                videoId: video.id
+            }
+        })
+
+        const videoId = video.id;
+        let payload = {
+            fieldname: 'videoFile',
+            originalname: 'lake.mp4',
+            encoding: '7bit',
+            mimetype: 'video/mp4',
+            destination: './uploads',
+            filename: 'a75094e0-d685-49be-8f36-b84db1b45329.mp4',
+            videoPath: `E:\\Projects\\video_transcoder_backend_api\\api\\uploads\\${req.file?.filename}`,
+            size: 42992636,
+            outputPath:  `./uploads/hls-videos/${videoId}`,
+            videoId: videoId,
+            retries: 0
+        }
         console.log(video);
         console.log(payload)
         await redisClient.lPush(redisConfig.queueName, JSON.stringify(payload))
@@ -67,9 +96,12 @@ uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) =>
     }
 });
 
+
+
 async function startServer() {
     try {
         await redisClient.connect();
+        await redisSubscriber.connect();
         console.log("Connected to Redis");
 
     } catch (error) {

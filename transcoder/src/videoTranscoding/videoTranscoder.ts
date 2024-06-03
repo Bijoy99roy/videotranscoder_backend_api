@@ -31,7 +31,7 @@ export async function transcodeVideos(ffmpegCommand: string, outputPath: string,
         }
 
         // res.json({"message": "File uploaded successfully.", videoUrl: videoUrl, videoId: videoId})
-        return true;
+        return videoUrl;
     } catch (error) {
         console.error(`[ERROR] exec error: ${error}`);
         return false;
