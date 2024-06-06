@@ -1,25 +1,25 @@
 import { redisConfig, MAX_RETRIES } from "./config";
 import { generateTranscodingCommand } from "./ffmpegManager/ffmpeg";
-import { initializeRedis } from "./queueManager/redis";
 import { transcodeVideos } from "./videoTranscoding/videoTranscoder";
 import fs from "fs";
 import { PrismaClient } from "@prisma/client";
+import { redisClient, redisPublisher } from "./queueManager/redis";
 
-const redisClient = initializeRedis()
-const redisPublisher = initializeRedis()
+// const redisClient = initializeRedis()
+// const redisPublisher = initializeRedis()
 const prisma = new PrismaClient()
 
 async function startWorker(){
     try{
-        await redisClient?.connect()
-        await redisPublisher?.connect()
+        // await redisClient?.connect()
+        // await redisPublisher?.connect()
         console.log("Worker connected to Redis.");
         while (true) {
             try {
                 const submission: any = await redisClient?.brPop(redisConfig.processingQueueName, 0);
                 console.log(submission)
                 if (submission){
-                    const { videoPath, outputPath, videoId, retries } = JSON.parse(submission?.element)
+                    const { videoPath, outputPath, videoId, retries, jobId } = JSON.parse(submission?.element)
                     if (retries > MAX_RETRIES){
                         await redisClient?.rPush(redisConfig.fallbackQueueName, submission?.element)
                         console.log(`MAX RETRY EXCEEDED: For videoId ${videoId}. Pushed to ${redisConfig.fallbackQueueName} queue.`)
@@ -36,6 +36,8 @@ async function startWorker(){
                                 status: "FAILED"
                             }
                         })
+                        const comepleteMessage = JSON.stringify({ jobId, videoId, status: "Failed"})
+                        redisPublisher?.publish('transcode_complete', comepleteMessage);
                     } else {
                         if(!fs.existsSync(outputPath)){
                             fs.mkdirSync(outputPath, {recursive: true});
@@ -75,7 +77,8 @@ async function startWorker(){
                                     playlistPath: videoUrl
                                 }
                             })
-                            redisPublisher?.publish('transcode_complete', `Video ID: ${videoId} processing complete`);
+                            const comepleteMessage = JSON.stringify({ jobId, videoId, status: "Success"})
+                            redisPublisher?.publish('transcode_complete', comepleteMessage);
                             
                         } else {
                             console.error(`Video with id: ${videoId} failed to transcribe`)
