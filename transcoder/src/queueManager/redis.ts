@@ -1,24 +1,18 @@
-import { createClient, RedisClientType } from "redis";
+import { createClient } from 'redis';
 
-export function initializeRedis() {
-    try{
-        const redicClient = createClient();
-        return redicClient;
-    } catch(error) {
-        console.error("Failed to initalize redis client");
-    }
-    
-}
+const redisClient = createClient();
+const redisPublisher = createClient();
 
-export async function connectRedis(){
-    try{
-        const client = initializeRedis();
-        if (client) {
-            await client.connect();
-        } else {
-            console.error("Client not found");
-        }
-    } catch (error) {
-        console.error("Errpr occured connecting redis client");
-    }
-}
+redisClient.on('connect', () => console.log('Redis client connected'));
+redisPublisher.on('connect', () => console.log('Redis Publisher connected'));
+
+
+redisClient.on('error', (err) => console.error('Redis client error:', err));
+redisPublisher.on('error', (err) => console.error('Redis publisher error:', err));
+
+
+redisClient.connect();
+redisPublisher.connect();
+
+
+export { redisClient, redisPublisher };
