@@ -1,42 +1,17 @@
 import express from "express";
 import upload from "../middleware/uploadMiddleware";
 import {createClient} from "redis";
-import redisConfig from "../config";
+import redisConfig from "../config/config";
 import { v4 as uuidv4 } from "uuid";
-
+import { redisClient } from "../config/redis"
 import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 const uploadRouter = express.Router();
 
-const redisClient = createClient()
-const redisSubscriber = createClient();
+// const redisClient = createClient()
+// const redisSubscriber = createClient();
 
-// Handle errors and connection events
-redisSubscriber.on('error', (err) => console.error('Redis subscriber error:', err));
-redisSubscriber.on('connect', () => console.log('Redis subscriber connected'));
-redisSubscriber.on('ready', () => {
-  console.log('Redis subscriber ready to subscribe');
-
-  // Subscribe to the 'transcode_complete' channel
-  redisSubscriber.subscribe('transcode_complete', (message: string) => {
-    
-      console.log(`Subscribed successfully to ${message} `);
-    
-  });
-});
-
-// Handle incoming messages
-redisSubscriber.on('message', (channel, message) => {
-  console.log(`Received message on channel ${channel}: ${message}`);
-});
-redisClient.on("error", (err) => {
-    console.error("Redis client is not connected to the server: ", err)
-});
-
-redisClient.on("connect", () => {
-    console.log("Redis client is connected to the server!!")
-})
 
 uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) => {
     // console.log(req.file)
@@ -69,7 +44,9 @@ uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) =>
         })
 
         const videoId = video.id;
+        const jobId = videoQueue.id;
         let payload = {
+            jobId: jobId,
             fieldname: 'videoFile',
             originalname: 'lake.mp4',
             encoding: '7bit',
@@ -84,9 +61,12 @@ uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) =>
         }
         console.log(video);
         console.log(payload)
+        // await redisClient.set()
         await redisClient.lPush(redisConfig.queueName, JSON.stringify(payload))
         res.status(200).json({
-            message: "File added to the processing queue"
+            message: "File added to the processing queue",
+            userId: user?.id,
+            jobId: jobId
         })
     } catch(error) {
         console.log("Failed to add file to the processing queue", error)
@@ -100,8 +80,8 @@ uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) =>
 
 async function startServer() {
     try {
-        await redisClient.connect();
-        await redisSubscriber.connect();
+        // await redisClient.connect();
+        // await redisSubscriber.connect();
         console.log("Connected to Redis");
 
     } catch (error) {
