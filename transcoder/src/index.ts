@@ -96,8 +96,7 @@ async function startWorker(){
                 
             } catch (error) {
                 console.error("Error processing submission:", error);
-                // Implement your error handling logic here. For example, you might want to push
-                // the submission back onto the queue or log the error to a file.
+
             }
         }
         
