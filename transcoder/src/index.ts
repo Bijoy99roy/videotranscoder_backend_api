@@ -77,7 +77,7 @@ async function startWorker(){
                                     playlistPath: videoUrl
                                 }
                             })
-                            const comepleteMessage = JSON.stringify({ jobId, videoId, status: "Success"})
+                            const comepleteMessage = JSON.stringify({ jobId, videoId, userId:video.userId, status: "Success"})
                             redisPublisher?.publish('transcode_complete', comepleteMessage);
                             
                         } else {
