@@ -4,7 +4,9 @@ import {createClient} from "redis";
 import redisConfig from "../config/config";
 import { v4 as uuidv4 } from "uuid";
 import { redisClient } from "../config/redis"
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, User } from '@prisma/client'
+const gcs = require('@google-cloud/storage');
+
 const prisma = new PrismaClient()
 
 const uploadRouter = express.Router();
@@ -12,16 +14,36 @@ const uploadRouter = express.Router();
 // const redisClient = createClient()
 // const redisSubscriber = createClient();
 
+const bucketName = 'transcode-1';
+const storage = new gcs.Storage({ keyFilename: 'E:/Projects/gcs/analog-antler-425411-e6-b4766e9f647f.json' });
 
-uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) => {
-    // console.log(req.file)
-    
-    try{
-        
-        
+uploadRouter.get("/generateSignedUrlWrite", async (req, res) =>{
+    if (!req.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    const  fileName = req.query.fileName
+    const contentType  = req.query.contentType;
+    try {
+
+
+        await storage.bucket(bucketName).setCorsConfiguration([
+            {
+              maxAgeSeconds: 3600,
+              method: ["GET", "PUT"],
+              origin: ["*"],
+              responseHeader: ["Content-Type"],
+            },
+          ]);
+        const options = {
+          version: 'v4',
+          action: 'write',
+          expires: Date.now() + 30 * 60 * 1000, 
+          contentType: contentType,
+        };
+
         const user = await prisma.user.findFirst({
             where:{
-                firstName: "Bijoy"
+                googleId: (req.user as User).googleId
             },
             select: {
                 id: true
@@ -30,20 +52,105 @@ uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) =>
 
         const video = await prisma.video.create({
             data: {
-                title: "hello",
-                description: "sdfdf",
-                userId: user?.id as string
+                title: fileName as string,
+                description: "",
+                userId: user?.id as string,
+            }
+        })
+        
+        const extension = (fileName as string).split(".").pop()
+        const new_filename = `${video.id}/${video.id}.${extension}`
+        console.log(`Full Path: ${new_filename}`)
+        const [url] = await storage.bucket(bucketName).file(new_filename).getSignedUrl(options);
+
+        await prisma.video.update({
+            where:{
+                id: video.id
+            },
+            data: {
+                videoPath: new_filename
+            }
+        })
+
+        res.status(200).send({ signedUrl:url, videoId: video.id });
+      } catch (error) {
+        console.error('Error generating signed URL:', error);
+        res.status(500).send('Error generating signed URL');
+      }
+})
+
+uploadRouter.get("/generateSignedUrlRead", async (req, res) =>{
+    if (!req.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    const  filename  = req.query.fileName;
+    try {
+        const options = {
+          version: 'v4',
+          action: 'read',
+          expires: Date.now() + 30 * 60 * 1000, 
+        };
+
+        const user = await prisma.user.findFirst({
+            where:{
+                googleId: (req.user as User).googleId
+            },
+            select: {
+                id: true
+            }
+        })
+
+        const video = await prisma.video.create({
+            data: {
+                title: filename as string,
+                description: "",
+                userId: user?.id as string,
+            }
+        })
+        
+        const new_filename = `${video.id}/filename`
+        const [url] = await storage.bucket(bucketName).file(new_filename).getSignedUrl(options);
+
+        res.status(200).send({ url, videoId: video.id });
+      } catch (error) {
+        console.error('Error generating signed URL:', error);
+        res.status(500).send('Error generating signed URL');
+      }
+})
+
+uploadRouter.post("/queueTranscoding", async (req, res) => {
+    // console.log(req.file)
+    
+    try{
+        const videoId = req.body.videoId;
+        const  url = req.body.url;
+        if (!req.user) {
+            return res.status(401).json({ error: 'Unauthorized' });
+          }
+        
+          const user = await prisma.user.findFirst({
+            where:{
+                googleId: (req.user as User).googleId
+            },
+            select: {
+                id: true
+            }
+        })
+
+        const video = await prisma.video.findFirst({
+            where: {
+                id: videoId as string
             }
         })
 
         const videoQueue = await prisma.videoQueue.create({
             data: {
                 userId: user?.id as string,
-                videoId: video.id
+                videoId: videoId as string
             }
         })
 
-        const videoId = video.id;
+        // const videoId = video.id;
         const jobId = videoQueue.id;
         let payload = {
             jobId: jobId,
@@ -53,7 +160,7 @@ uploadRouter.post("/uploadfile", upload.single("videoFile"), async (req, res) =>
             mimetype: 'video/mp4',
             destination: './uploads',
             filename: 'a75094e0-d685-49be-8f36-b84db1b45329.mp4',
-            videoPath: `E:\\Projects\\video_transcoder_backend_api\\api\\uploads\\${req.file?.filename}`,
+            videoPath: url,
             size: 42992636,
             outputPath:  `./uploads/hls-videos/${videoId}`,
             videoId: videoId,

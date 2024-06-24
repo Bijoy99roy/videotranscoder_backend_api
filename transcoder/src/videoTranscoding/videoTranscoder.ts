@@ -1,40 +1,224 @@
-import { exec } from "child_process";
-import fs from "fs";
-import util from "util";
+const { spawn } = require('child_process');
+const axios = require('axios');
+const gcs = require('@google-cloud/storage');
+const fs = require('fs');
+const { PassThrough } = require('stream');
+import { v4 as uuidv4} from "uuid";
+import { PrismaClient } from '@prisma/client'
+const prisma = new PrismaClient()
 
-const execPromise = util.promisify(exec);
-const copyFilePromise = util.promisify(fs.copyFile);
+const bucketName = 'transcode-1';
+const storage = new gcs.Storage({ keyFilename: 'E:/Projects/gcs/analog-antler-425411-e6-b4766e9f647f.json' });
 
-const linkFilePath = './videoLinks.txt'
+async function generateSignedUrlWrite(filename:any, contentType:any) {
+    const options = {
+      version: 'v4',
+      action: 'write',
+      expires: Date.now() + 30 * 60 * 1000, // 30 minutes
+      contentType: contentType,
+    };
+  
+    const [url] = await storage.bucket(bucketName).file(filename).getSignedUrl(options);
+  
+    console.log(`The signed URL for ${filename} is ${url}`);
+    return url;
+  }
 
-const storeLink = (videoLink: string) => {
-    const newLinkLine = `${videoLink}\n`
-    fs.appendFileSync(linkFilePath, newLinkLine, 'utf-8');
-    console.log(`[INFO] video URL: ${videoLink} stored successfully`);
-}
+  async function generateSignedUrlRead(filename:any) {
+    const options = {
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + 60 * 60 * 1000, // 60 minutes
+    };
+  
+    const [url] = await storage.bucket(bucketName).file(filename).getSignedUrl(options);
+  
+    console.log(`The signed URL for ${filename} is ${url}`);
+    return url;
+  }
 
-export async function transcodeVideos(ffmpegCommand: string, outputPath: string, videoId: string){
+  async function uploadSegment(segmentStream:any, segmentName:any) {
+    const signedUrl = await generateSignedUrlWrite(segmentName, 'video/MP2T');
     try {
-        const { stdout, stderr } = await execPromise(ffmpegCommand);
-        console.log(`stdout: ${stdout}`);
-        console.log(`stderr: ${stderr}`);
-
-        await copyFilePromise('./playlist.m3u8', `${outputPath}/playlist.m3u8`);
-
-        const videoUrl = `http://localhost:8000/uploads/hls-videos/${videoId}/playlist.m3u8`;
-
-        try {
-            storeLink(videoUrl);
-        } catch (error) {
-            console.error(`[ERROR] error while storing video URL: ${error}`);
-            return false;
-        }
-
-        // res.json({"message": "File uploaded successfully.", videoUrl: videoUrl, videoId: videoId})
-        return videoUrl;
+      await new Promise((resolve, reject) => {
+        const passthrough = new PassThrough();
+        segmentStream.pipe(passthrough);
+        passthrough.on('end', resolve);
+        passthrough.on('error', reject);
+  
+        axios.put(signedUrl, passthrough, {
+          headers: {
+            'Content-Type': 'video/MP2T',
+          },
+        }).catch(reject);
+      });
+  
+      console.log(`Uploaded segment ${segmentName} successfully to ${signedUrl}`);
+      return true;
     } catch (error) {
-        console.error(`[ERROR] exec error: ${error}`);
-        return false;
+      console.error(`Error uploading segment ${segmentName} to ${signedUrl}:`, error);
+      return false;
     }
+  }
+
+  async function transcodeAndUpload(video_config:any, videoId:any) {
+    const ffmpegArgs = [
+      '-hide_banner',
+      '-loglevel', 'verbose',
+      '-i', `${video_config.url}`,
+      '-vf', `scale=w=${video_config.width}:h=${video_config.height}:force_original_aspect_ratio=decrease`,
+      '-c:a', 'aac',
+      '-ar', '48000',
+      '-c:v', 'h264',
+      '-profile:v', 'main',
+      '-crf', '20',
+      '-sc_threshold', '0',
+      '-g', '48',
+      '-keyint_min', '48',
+      '-hls_time', '5',
+      '-b:v', `${video_config.video_bitrate}`,
+      '-maxrate', `${video_config.maxrate}`,
+      '-bufsize', `${video_config.bufsize}`,
+      '-b:a', `${video_config.audio_bitrate}`,
+      '-f', 'hls',
+      'pipe:1',
+    ];
     
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+    let segmentIndex = 0;
+    let segmentData = Buffer.alloc(0);
+    let segmentStream = new PassThrough();
+    let segmentNames:any = [];
+  
+    ffmpeg.stdout.on('data', async (data:any) => {
+      segmentData = Buffer.concat([segmentData, data]);
+  
+      if (data.includes('#EXTINF')) {
+        segmentStream.write(segmentData);
+        segmentStream.end();
+        const segmentName = `${videoId}/${video_config.width}x${video_config.height}/segment_${segmentIndex}.ts`;
+        segmentIndex++;
+        await uploadSegment(segmentStream, segmentName);
+        segmentNames.push(segmentName);
+        segmentData = Buffer.alloc(0);
+        segmentStream = new PassThrough();
+      }
+    });
+  
+    ffmpeg.stderr.on('data', (data:any) => {
+      // console.error(`FFmpeg stderr: ${data}`);
+    });
+  
+    return new Promise((resolve, reject) => {
+      ffmpeg.on('close', (code:any) => {
+        if (code === 0) {
+          console.log(`Transcoding for ${video_config.width}x${video_config.height} completed.`);
+          resolve(segmentNames);
+        } else {
+          reject(`FFmpeg process exited with code ${code}`);
+        }
+      });
+    });
+  }
+
+export async function uploadHLSContentToGCS(videoId: string) {
+  const video = await prisma.video.findFirst({
+    where:{
+      id: videoId
+    }
+  })
+  const readSignedUrl = await generateSignedUrlRead(video?.videoPath)
+  const transcoding_config = [
+    { width: 640, height: 360, video_bitrate: '800k', maxrate: '856k', bufsize: '1200k', audio_bitrate: '96k', url: readSignedUrl },
+    { width: 842, height: 480, video_bitrate: '1400k', maxrate: '1498k', bufsize: '2100k', audio_bitrate: '128k', url: readSignedUrl },
+    { width: 1280, height: 720, video_bitrate: '2800k', maxrate: '2996k', bufsize: '4200k', audio_bitrate: '128k', url: readSignedUrl },
+    { width: 1920, height: 1080, video_bitrate: '5000k', maxrate: '5350k', bufsize: '7500k', audio_bitrate: '192k', url: readSignedUrl },
+    
+  ];
+
+  const transcodePromises = transcoding_config.map(video_config => transcodeAndUpload(video_config, videoId));
+
+  try {
+    const allSegmentNames = await Promise.all(transcodePromises);
+
+    const playlistPromises = allSegmentNames.map((segmentNames, index) => {
+      const resolution = transcoding_config[index];
+      const playlistContent = generateM3U8Playlist(segmentNames);
+      const playlistFilePath = `./playlist_${resolution.width}x${resolution.height}.m3u8`;
+      fs.writeFileSync(playlistFilePath, playlistContent);
+      console.log(`Playlist file ${playlistFilePath} created.`);
+
+      return uploadPlaylistToGCS(`${videoId}/${resolution.width}x${resolution.height}/${resolution.height}p.m3u8`, playlistFilePath);
+    });
+
+    await Promise.all(playlistPromises);
+
+    const playlistContent = generateMasterPlaylist(videoId)
+    const playlistFilePath = `./playlist.m3u8`;
+    fs.writeFileSync(playlistFilePath, playlistContent);
+    console.log(`Playlist file ${playlistFilePath} created.`);
+    const playlistPath = await uploadMasterPlaylist(`${videoId}/playlist.m3u8`, playlistFilePath)
+    console.log('All playlists uploaded successfully.');
+    return playlistPath
+  } catch (error) {
+    console.error('Error processing resolutions:', error);
+    return false
+  }
 }
+
+async function uploadMasterPlaylist(destinationPath:string, localFilePath:any){
+    const playlistSignedUrl = await generateSignedUrlWrite(destinationPath, 'application/x-mpegURL');
+    // fs.writeFileSync("playlist.m3u8", playlistSignedUrl);
+    // console.log(`Playlist file playlist.m3u8 created.`);
+    try {
+        await axios.put(playlistSignedUrl, fs.readFileSync(localFilePath), {
+          headers: {
+            'Content-Type': 'application/x-mpegURL',
+          },
+        });
+        console.log(`Uploaded playlist file successfully to ${playlistSignedUrl}`);
+        fs.unlinkSync(localFilePath);
+        console.log(`Local playlist file ${localFilePath} deleted.`);
+        return getGCSUrl(destinationPath)
+      } catch (error) {
+        console.error(`Error uploading playlist file to ${playlistSignedUrl}:`, error);
+        throw error; 
+      }
+}
+
+function generateMasterPlaylist(videoId:any) {
+    let playlistContent = `#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n${getGCSUrl(`${videoId}/640x360`)}/360p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=842x480\n${getGCSUrl(`${videoId}/842x480`)}/480p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720\n${getGCSUrl(`${videoId}/1280x720`)}/720p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\n${getGCSUrl(`${videoId}/1920x1080`)}/1080p.m3u8\n`;
+    return playlistContent
+}
+async function uploadPlaylistToGCS(destinationPath:any, localFilePath:any) {
+  const playlistSignedUrl = await generateSignedUrlWrite(destinationPath, 'application/x-mpegURL');
+  try {
+    await axios.put(playlistSignedUrl, fs.readFileSync(localFilePath), {
+      headers: {
+        'Content-Type': 'application/x-mpegURL',
+      },
+    });
+    console.log(`Uploaded playlist file successfully to ${playlistSignedUrl}`);
+    fs.unlinkSync(localFilePath);
+    console.log(`Local playlist file ${localFilePath} deleted.`);
+  } catch (error) {
+    console.error(`Error uploading playlist file to ${playlistSignedUrl}:`, error);
+    throw error; 
+  }
+}
+function getGCSUrl(segmentName:any) {
+    return `https://storage.googleapis.com/${bucketName}/${segmentName}`;
+  }
+function generateM3U8Playlist(segmentNames:any) {
+  let playlistContent = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:0\n`;
+
+  segmentNames.forEach((segmentName:any, index:any) => {
+    const duration = index % 2 === 0 ? 4.8 : 3.2; 
+    playlistContent += `#EXTINF:${duration.toFixed(6)},\n${getGCSUrl(segmentName)}\n`;
+  });
+
+  playlistContent += `#EXT-X-ENDLIST`;
+
+  return playlistContent;
+}
+

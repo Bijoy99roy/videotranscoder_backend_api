@@ -15,10 +15,10 @@ datasource db {
 
 model User {
   id          String        @id @default(uuid())
-  firstName   String
-  lastName    String
-  email       String        @unique
-  password    String
+  googleId    String
+  displayName String
+  email       String
+  photo       String
   videos      Video[]
   videoQueue  VideoQueue[]
   createdAt   DateTime      @default(now())
@@ -30,6 +30,7 @@ model Video {
   title       String
   description String
   playlistPath String?
+  videoPath   String?
   user        User          @relation(fields: [userId], references: [id])
   userId      String
   videoQueue  VideoQueue?

@@ -33,7 +33,7 @@ export const handleWebSocket = async (ws: WebSocket) => {
                 registeredUserId = userId;
 
                 await redisClient.hSet("clients", userId, JSON.stringify({ jobId }));
-                console.log(`User registered with ID: ${userId} for job ID: ${jobId}`);
+                console.log(`User registered with ID: ${userId} for job ID: ${jobId}, ${clients.get(userId)}`);
             } else {
                 console.log(`UserId: ${userId} is an active connetion in different browser/device`)
             }
@@ -97,10 +97,11 @@ redisSubscriber.subscribe("transcode_complete", async (message) => {
     // console.log("Entere3")
     // if (clientInfoStr) {
         // const clientInfo = JSON.parse(clientInfoStr);
+    console.log(status)
     const webSocket = clients.get(userId);
     // console.log("Entered4")
     if (webSocket) {
-        webSocket.send(JSON.stringify({ jobId, videoId, status }));
+        webSocket.send(JSON.stringify({ type:"videoInfo", jobId, videoId, status }));
     } else {
         console.log("Websocket not found") 
     }

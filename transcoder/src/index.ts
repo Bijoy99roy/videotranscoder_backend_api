@@ -1,9 +1,10 @@
 import { redisConfig, MAX_RETRIES } from "./config";
 import { generateTranscodingCommand } from "./ffmpegManager/ffmpeg";
-import { transcodeVideos } from "./videoTranscoding/videoTranscoder";
+
 import fs from "fs";
 import { PrismaClient } from "@prisma/client";
 import { redisClient, redisPublisher } from "./queueManager/redis";
+import { uploadHLSContentToGCS } from "./videoTranscoding/videoTranscoder";
 
 // const redisClient = initializeRedis()
 // const redisPublisher = initializeRedis()
@@ -36,7 +37,7 @@ async function startWorker(){
                                 status: "FAILED"
                             }
                         })
-                        const comepleteMessage = JSON.stringify({ jobId, videoId, status: "Failed"})
+                        const comepleteMessage = JSON.stringify({ jobId, videoId, userId:video?.userId, status: "Failed"})
                         redisPublisher?.publish('transcode_complete', comepleteMessage);
                     } else {
                         if(!fs.existsSync(outputPath)){
@@ -56,7 +57,8 @@ async function startWorker(){
                                 status: "IN_PROCESS"
                             }
                         })
-                        const videoUrl = await transcodeVideos(ffmpegCommand, outputPath, videoId)
+                        console.log("start")
+                        const videoUrl = await uploadHLSContentToGCS(videoId)
                         
                         if (videoUrl) {
                             console.log(`Video with id: ${videoId} is transcribed`)
@@ -68,6 +70,7 @@ async function startWorker(){
                                     playlistPath: videoUrl
                                 }
                             })
+                            console.log(`id: ${video.userId}`)
                             await prisma.videoQueue.update({
                                 where: {
                                     videoId: video.id
@@ -77,6 +80,7 @@ async function startWorker(){
                                     playlistPath: videoUrl
                                 }
                             })
+                            console.log(`id: ${video.userId}`)
                             const comepleteMessage = JSON.stringify({ jobId, videoId, userId:video.userId, status: "Success"})
                             redisPublisher?.publish('transcode_complete', comepleteMessage);
                             

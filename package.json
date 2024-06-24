@@ -7,9 +7,6 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "seed": "npx tsc -b && node dist/seed.js"
   },
-  "prisma": {
-    "seed": "npx tsc -b && node dist/seed.js"
-  },
   "keywords": [],
   "author": "",
   "license": "ISC",
