@@ -1,5 +1,9 @@
-const redisConfig = {
+export const redisConfig = {
     queueName: "file_processing_queue"
 }
 
-export = redisConfig;
+export const gcsConfig = {
+    bucketName: 'transcode-1'
+}
+
+// export = redisConfig;

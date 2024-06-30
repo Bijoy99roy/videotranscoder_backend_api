@@ -1,16 +1,14 @@
 import passport, { use } from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { Prisma, PrismaClient, User } from '@prisma/client'
-
+require('dotenv').config()
 const prisma = new PrismaClient()
 
 interface Users extends User{}
 
-console.log(process.env.GOOGLE_CLIENT_ID)
-
 passport.use(new GoogleStrategy({
-    clientID: "",
-    clientSecret: "",
+    clientID: process.env.GOOGLE_CLIENT_ID ?? "",
+    clientSecret: process.env.GOOGLE_CLIENT_ID ?? "",
     callbackURL: "http://localhost:3000/api/v1/auth/google/callback"
 },
 async (accessToken, refreshToken, profile, done) => {
@@ -31,6 +29,11 @@ async (accessToken, refreshToken, profile, done) => {
                     photo: profile.photos ? profile.photos[0].value : ""
                 }
             });
+            await prisma.channel.create({
+                data:{
+                    userId: user.id
+                }
+            })
         }
         done(null, user);
     } catch (error) {

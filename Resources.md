@@ -1,0 +1,1 @@
+https://stackoverflow.com/questions/65277541/batch-video-views-to-redis-instead-of-directly-to-the-db

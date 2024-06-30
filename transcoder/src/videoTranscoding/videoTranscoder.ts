@@ -5,6 +5,7 @@ const fs = require('fs');
 const { PassThrough } = require('stream');
 import { v4 as uuidv4} from "uuid";
 import { PrismaClient } from '@prisma/client'
+import { getVideoMetadata, takeScreenshot } from "../ffmpegManager/ffmpegHandler";
 const prisma = new PrismaClient()
 
 const bucketName = 'transcode-1';
@@ -128,7 +129,9 @@ export async function uploadHLSContentToGCS(videoId: string) {
     }
   })
   const readSignedUrl = await generateSignedUrlRead(video?.videoPath)
-  const transcoding_config = [
+
+  const metaData = await getVideoMetadata(readSignedUrl as string)
+  const transcoding_config_list = [
     { width: 640, height: 360, video_bitrate: '800k', maxrate: '856k', bufsize: '1200k', audio_bitrate: '96k', url: readSignedUrl },
     { width: 842, height: 480, video_bitrate: '1400k', maxrate: '1498k', bufsize: '2100k', audio_bitrate: '128k', url: readSignedUrl },
     { width: 1280, height: 720, video_bitrate: '2800k', maxrate: '2996k', bufsize: '4200k', audio_bitrate: '128k', url: readSignedUrl },
@@ -136,8 +139,17 @@ export async function uploadHLSContentToGCS(videoId: string) {
     
   ];
 
-  const transcodePromises = transcoding_config.map(video_config => transcodeAndUpload(video_config, videoId));
+  const transcoding_config = transcoding_config_list.filter((config:any)=>{
+    return config.height <= metaData.height
+  });
 
+  const transcodePromises = transcoding_config.map(video_config => transcodeAndUpload(video_config, videoId));
+  const hasThumbnail:boolean = await takeScreenshot(readSignedUrl as string, 20, "screenshot.png", metaData.duration, metaData.height)
+  let thumbnailPath;
+  if(hasThumbnail){
+    thumbnailPath = await uploadThumbnail(`${videoId}/sample_thumbnail.png`, "./screenshot.png")
+  }
+  
   try {
     const allSegmentNames = await Promise.all(transcodePromises);
 
@@ -159,11 +171,31 @@ export async function uploadHLSContentToGCS(videoId: string) {
     console.log(`Playlist file ${playlistFilePath} created.`);
     const playlistPath = await uploadMasterPlaylist(`${videoId}/playlist.m3u8`, playlistFilePath)
     console.log('All playlists uploaded successfully.');
-    return playlistPath
+    return {playlistPath, thumbnailPath}
   } catch (error) {
     console.error('Error processing resolutions:', error);
     return false
   }
+}
+
+async function uploadThumbnail(destinationPath:string, localFilePath:any){
+  const thumbnailSignedUrl = await generateSignedUrlWrite(destinationPath, 'image/png');
+    // fs.writeFileSync("playlist.m3u8", playlistSignedUrl);
+    // console.log(`Playlist file playlist.m3u8 created.`);
+    try {
+        await axios.put(thumbnailSignedUrl, fs.readFileSync(localFilePath), {
+          headers: {
+            'Content-Type': 'image/png',
+          },
+        });
+        console.log(`Uploaded thumbnail file successfully to ${thumbnailSignedUrl}`);
+        fs.unlinkSync(localFilePath);
+        console.log(`Local thumbnail file ${localFilePath} deleted.`);
+        return getGCSUrl(destinationPath)
+      } catch (error) {
+        console.error(`Error uploading thumbnail file to ${thumbnailSignedUrl}:`, error);
+        throw error; 
+      }
 }
 
 async function uploadMasterPlaylist(destinationPath:string, localFilePath:any){

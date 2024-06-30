@@ -27,6 +27,14 @@ async function startWorker(){
                         const video = await prisma.video.findFirst({
                             where: {
                                 id: videoId
+                            },
+                            select:{
+                                id:true,
+                                channel:{
+                                    select:{
+                                        userId:true
+                                    }
+                                }
                             }
                         })
                         await prisma.videoQueue.update({
@@ -37,7 +45,7 @@ async function startWorker(){
                                 status: "FAILED"
                             }
                         })
-                        const comepleteMessage = JSON.stringify({ jobId, videoId, userId:video?.userId, status: "Failed"})
+                        const comepleteMessage = JSON.stringify({ jobId, videoId, userId:video?.channel.userId, status: "Failed"})
                         redisPublisher?.publish('transcode_complete', comepleteMessage);
                     } else {
                         if(!fs.existsSync(outputPath)){
@@ -58,19 +66,29 @@ async function startWorker(){
                             }
                         })
                         console.log("start")
-                        const videoUrl = await uploadHLSContentToGCS(videoId)
+                        const response = await uploadHLSContentToGCS(videoId)
                         
-                        if (videoUrl) {
+                        if (response) {
+                            const {playlistPath: videoUrl, thumbnailPath:thumbnailUrl} = response
                             console.log(`Video with id: ${videoId} is transcribed`)
                             const video = await prisma.video.update({
                                 where: {
                                     id: videoId
                                 },
                                 data: {
-                                    playlistPath: videoUrl
+                                    playlistPath: videoUrl,
+                                    thumbnailUrl: thumbnailUrl
+                                },
+                                select:{
+                                    id:true,
+                                    channel:{
+                                        select:{
+                                            userId:true
+                                        }
+                                    }
                                 }
                             })
-                            console.log(`id: ${video.userId}`)
+                            console.log(`id: ${video.channel.userId}`)
                             await prisma.videoQueue.update({
                                 where: {
                                     videoId: video.id
@@ -78,10 +96,18 @@ async function startWorker(){
                                 data: {
                                     status: "PROCESSED",
                                     playlistPath: videoUrl
+                                },
+                                select:{
+                                    id:true,
+                                    channel:{
+                                        select:{
+                                            userId:true
+                                        }
+                                    }
                                 }
                             })
-                            console.log(`id: ${video.userId}`)
-                            const comepleteMessage = JSON.stringify({ jobId, videoId, userId:video.userId, status: "Success"})
+                            console.log(`id: ${video.channel.userId}`)
+                            const comepleteMessage = JSON.stringify({ jobId, videoId, userId:video.channel.userId, status: "Success", thumbnailUrl:thumbnailUrl})
                             redisPublisher?.publish('transcode_complete', comepleteMessage);
                             
                         } else {

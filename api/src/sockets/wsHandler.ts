@@ -42,9 +42,14 @@ export const handleWebSocket = async (ws: WebSocket) => {
             const userId = parsedMessage.userId;
             const webSocket = clients.get(userId);
             if (!webSocket){
+                const channel = await prisma.channel.findFirst({
+                    where:{
+                        userId: userId
+                    }
+                })
                 const jobs = await prisma.videoQueue.findFirst({
                     where: {
-                        userId: userId,
+                        channelId: channel?.id,
                         OR: [
                             {
                                 status: "IN_PROCESS"
@@ -89,9 +94,9 @@ export const handleWebSocket = async (ws: WebSocket) => {
 
 redisSubscriber.subscribe("transcode_complete", async (message) => {
     // console.log("Entered")
-    const { jobId, videoId, userId, status } = JSON.parse(message);
+    const { jobId, videoId, userId, status, thumbnailUrl } = JSON.parse(message);
     // console.log("Entered1")
-    await redisClient.set(jobId, JSON.stringify({ videoId, userId, status }));
+    await redisClient.set(jobId, JSON.stringify({ videoId, userId, status, thumbnailUrl }));
     // console.log("Entered2")
     // const clientInfoStr = await redisClient.hGet('clients', userId);
     // console.log("Entere3")
@@ -101,7 +106,7 @@ redisSubscriber.subscribe("transcode_complete", async (message) => {
     const webSocket = clients.get(userId);
     // console.log("Entered4")
     if (webSocket) {
-        webSocket.send(JSON.stringify({ type:"videoInfo", jobId, videoId, status }));
+        webSocket.send(JSON.stringify({ type:"videoInfo", jobId, videoId, status, thumbnailUrl }));
     } else {
         console.log("Websocket not found") 
     }
