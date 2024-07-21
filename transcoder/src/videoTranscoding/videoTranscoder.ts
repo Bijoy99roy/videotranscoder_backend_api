@@ -6,6 +6,7 @@ const { PassThrough } = require('stream');
 import { v4 as uuidv4} from "uuid";
 import { PrismaClient } from '@prisma/client'
 import { getVideoMetadata, takeScreenshot } from "../ffmpegManager/ffmpegHandler";
+
 const prisma = new PrismaClient()
 
 const bucketName = 'transcode-1';
@@ -20,8 +21,6 @@ async function generateSignedUrlWrite(filename:any, contentType:any) {
     };
   
     const [url] = await storage.bucket(bucketName).file(filename).getSignedUrl(options);
-  
-    console.log(`The signed URL for ${filename} is ${url}`);
     return url;
   }
 
@@ -34,7 +33,6 @@ async function generateSignedUrlWrite(filename:any, contentType:any) {
   
     const [url] = await storage.bucket(bucketName).file(filename).getSignedUrl(options);
   
-    console.log(`The signed URL for ${filename} is ${url}`);
     return url;
   }
 
@@ -54,7 +52,7 @@ async function generateSignedUrlWrite(filename:any, contentType:any) {
         }).catch(reject);
       });
   
-      console.log(`Uploaded segment ${segmentName} successfully to ${signedUrl}`);
+
       return true;
     } catch (error) {
       console.error(`Error uploading segment ${segmentName} to ${signedUrl}:`, error);
@@ -112,6 +110,7 @@ async function generateSignedUrlWrite(filename:any, contentType:any) {
   
     return new Promise((resolve, reject) => {
       ffmpeg.on('close', (code:any) => {
+        console.log(code)
         if (code === 0) {
           console.log(`Transcoding for ${video_config.width}x${video_config.height} completed.`);
           resolve(segmentNames);
@@ -132,6 +131,7 @@ export async function uploadHLSContentToGCS(videoId: string) {
 
   const metaData = await getVideoMetadata(readSignedUrl as string)
   const transcoding_config_list = [
+    { width: 426, height: 240, video_bitrate: '400k', maxrate: '428k', bufsize: '600k', audio_bitrate: '64k', url: readSignedUrl },
     { width: 640, height: 360, video_bitrate: '800k', maxrate: '856k', bufsize: '1200k', audio_bitrate: '96k', url: readSignedUrl },
     { width: 842, height: 480, video_bitrate: '1400k', maxrate: '1498k', bufsize: '2100k', audio_bitrate: '128k', url: readSignedUrl },
     { width: 1280, height: 720, video_bitrate: '2800k', maxrate: '2996k', bufsize: '4200k', audio_bitrate: '128k', url: readSignedUrl },
@@ -145,6 +145,7 @@ export async function uploadHLSContentToGCS(videoId: string) {
 
   const transcodePromises = transcoding_config.map(video_config => transcodeAndUpload(video_config, videoId));
   const hasThumbnail:boolean = await takeScreenshot(readSignedUrl as string, 20, "screenshot.png", metaData.duration, metaData.height)
+  // await convertImageToWebP("./screenshot.png", "./screenshot.webp")
   let thumbnailPath;
   if(hasThumbnail){
     thumbnailPath = await uploadThumbnail(`${videoId}/sample_thumbnail.png`, "./screenshot.png")
@@ -152,7 +153,7 @@ export async function uploadHLSContentToGCS(videoId: string) {
   
   try {
     const allSegmentNames = await Promise.all(transcodePromises);
-
+    console.log(`wprked`);
     const playlistPromises = allSegmentNames.map((segmentNames, index) => {
       const resolution = transcoding_config[index];
       const playlistContent = generateM3U8Playlist(segmentNames);
@@ -188,7 +189,6 @@ async function uploadThumbnail(destinationPath:string, localFilePath:any){
             'Content-Type': 'image/png',
           },
         });
-        console.log(`Uploaded thumbnail file successfully to ${thumbnailSignedUrl}`);
         fs.unlinkSync(localFilePath);
         console.log(`Local thumbnail file ${localFilePath} deleted.`);
         return getGCSUrl(destinationPath)
@@ -208,7 +208,6 @@ async function uploadMasterPlaylist(destinationPath:string, localFilePath:any){
             'Content-Type': 'application/x-mpegURL',
           },
         });
-        console.log(`Uploaded playlist file successfully to ${playlistSignedUrl}`);
         fs.unlinkSync(localFilePath);
         console.log(`Local playlist file ${localFilePath} deleted.`);
         return getGCSUrl(destinationPath)
@@ -219,7 +218,7 @@ async function uploadMasterPlaylist(destinationPath:string, localFilePath:any){
 }
 
 function generateMasterPlaylist(videoId:any) {
-    let playlistContent = `#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n${getGCSUrl(`${videoId}/640x360`)}/360p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=842x480\n${getGCSUrl(`${videoId}/842x480`)}/480p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720\n${getGCSUrl(`${videoId}/1280x720`)}/720p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\n${getGCSUrl(`${videoId}/1920x1080`)}/1080p.m3u8\n`;
+    let playlistContent = `#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=426x240\n${getGCSUrl(`${videoId}/426x240`)}/240p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n${getGCSUrl(`${videoId}/640x360`)}/360p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=842x480\n${getGCSUrl(`${videoId}/842x480`)}/480p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720\n${getGCSUrl(`${videoId}/1280x720`)}/720p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\n${getGCSUrl(`${videoId}/1920x1080`)}/1080p.m3u8\n`;
     return playlistContent
 }
 async function uploadPlaylistToGCS(destinationPath:any, localFilePath:any) {
@@ -230,7 +229,6 @@ async function uploadPlaylistToGCS(destinationPath:any, localFilePath:any) {
         'Content-Type': 'application/x-mpegURL',
       },
     });
-    console.log(`Uploaded playlist file successfully to ${playlistSignedUrl}`);
     fs.unlinkSync(localFilePath);
     console.log(`Local playlist file ${localFilePath} deleted.`);
   } catch (error) {

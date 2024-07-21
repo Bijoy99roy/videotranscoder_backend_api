@@ -32,12 +32,12 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.use(express.json());
-app.use(express.static("./uploads"));
+// app.use(express.static("./uploads"));
 
-const uploadsDir = 'uploads'
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
-}
+// const uploadsDir = 'uploads'
+// if (!fs.existsSync(uploadsDir)) {
+//   fs.mkdirSync(uploadsDir);
+// }
 
 app.use("/api/v1", router);
 
@@ -53,5 +53,5 @@ const server = app.listen(3000, ()=>{
     console.log("Listening to port 3000")
 });
 
-const wss = new Server({ server });
+export const wss = new Server({ server });
 wss.on('connection', handleWebSocket);

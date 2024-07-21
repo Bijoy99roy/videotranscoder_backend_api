@@ -14,13 +14,11 @@ async function startWorker(){
     try{
         // await redisClient?.connect()
         // await redisPublisher?.connect()
-        console.log("Worker connected to Redis.");
         while (true) {
             try {
                 const submission: any = await redisClient?.brPop(redisConfig.processingQueueName, 0);
-                console.log(submission)
                 if (submission){
-                    const { videoPath, outputPath, videoId, retries, jobId } = JSON.parse(submission?.element)
+                    const { videoPath, outputPath, videoId, retries } = JSON.parse(submission?.element)
                     if (retries > MAX_RETRIES){
                         await redisClient?.rPush(redisConfig.fallbackQueueName, submission?.element)
                         console.log(`MAX RETRY EXCEEDED: For videoId ${videoId}. Pushed to ${redisConfig.fallbackQueueName} queue.`)
@@ -45,13 +43,9 @@ async function startWorker(){
                                 status: "FAILED"
                             }
                         })
-                        const comepleteMessage = JSON.stringify({ jobId, videoId, userId:video?.channel.userId, status: "Failed"})
+                        const comepleteMessage = JSON.stringify({  videoId, userId:video?.channel.userId, status: "Failed"})
                         redisPublisher?.publish('transcode_complete', comepleteMessage);
                     } else {
-                        if(!fs.existsSync(outputPath)){
-                            fs.mkdirSync(outputPath, {recursive: true});
-                        }
-                        const ffmpegCommand = generateTranscodingCommand(videoPath, outputPath)
                         const video = await prisma.video.findFirst({
                             where: {
                                 id: videoId
@@ -65,7 +59,6 @@ async function startWorker(){
                                 status: "IN_PROCESS"
                             }
                         })
-                        console.log("start")
                         const response = await uploadHLSContentToGCS(videoId)
                         
                         if (response) {
@@ -88,7 +81,6 @@ async function startWorker(){
                                     }
                                 }
                             })
-                            console.log(`id: ${video.channel.userId}`)
                             await prisma.videoQueue.update({
                                 where: {
                                     videoId: video.id
@@ -106,14 +98,11 @@ async function startWorker(){
                                     }
                                 }
                             })
-                            console.log(`id: ${video.channel.userId}`)
-                            const comepleteMessage = JSON.stringify({ jobId, videoId, userId:video.channel.userId, status: "Success", thumbnailUrl:thumbnailUrl})
+                            const comepleteMessage = JSON.stringify({  videoId, userId:video.channel.userId, status: "Success", thumbnailUrl:thumbnailUrl})
                             redisPublisher?.publish('transcode_complete', comepleteMessage);
                             
                         } else {
                             console.error(`Video with id: ${videoId} failed to transcribe`)
-                            fs.rmdirSync(outputPath)
-                            console.error(`Deleted folder: ${outputPath}`)
                             const payload =  JSON.parse(submission?.element)
                             payload.retries += 1
                             await redisClient?.rPush(redisConfig.processingQueueName, JSON.stringify(payload))

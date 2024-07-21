@@ -15,7 +15,6 @@ export async function takeScreenshot(inputVideo: string, percentage: number, out
         let command;
         const targetSeconds = (percentage / 100) * duration;
         const timestamp = formatTimestamp(targetSeconds);
-        console.log(timestamp)
         if (height < 720){
              command = `ffmpeg -ss ${timestamp} -i "${inputVideo}" -vframes 1 -q:v 20 -vf scale=${height}:-1 -update 1 ${outputImage}`;
         } else {
@@ -23,12 +22,11 @@ export async function takeScreenshot(inputVideo: string, percentage: number, out
         }
         
         try {
-            const { stdout, stderr } = await execPromise(command, { maxBuffer: 1024 * 1024 * 10 }); // Increase buffer size if needed
+            const { stdout, stderr } = await execPromise(command, { maxBuffer: 1024 * 1024 * 10 }); 
             if (stderr) {
                 // throw new Error(`Error: ${stderr}`);
-                console.log(stderr)
+                console.error(stderr)
             }
-            console.log(`Screenshot saved to ${outputImage}`);
             // const metadata = JSON.parse(stdout);
             return true;
         } catch (error) {
@@ -63,28 +61,10 @@ export async function getVideoMetadata(url: string) {
             "duration": videoMeta.duration,
             "size": metadata.format.size
         }
-        console.log(meta)
+
         return meta
     } catch (error) {
         throw new Error(`Failed to get video metadata: ${error}`);
     }
 }
-
-// export function getVideoMetadata(filePath: string) {
-//     const command = `ffprobe -v quiet -print_format json -show_format -show_streams ${filePath}`;
-//     const output = execSync(command, { encoding: 'utf-8' });
-//     const metadata = JSON.parse(output);
-//     console.log(metadata)
-//     const videoMeta = metadata.streams[0];
-//     const meta = {
-//         "width": videoMeta.width,
-//         "height": videoMeta.height,
-//         "duration": videoMeta.duration,
-//         "size": metadata.format.size
-//     }
-//     console.log(meta)
-//     return meta
-// }
-
-// getVideoMetadata(inputVideo)
 

@@ -3,8 +3,10 @@ import upload from "../middleware/uploadMiddleware";
 import {createClient} from "redis";
 import {redisConfig, gcsConfig} from "../config/config";
 import { v4 as uuidv4 } from "uuid";
-import { redisClient } from "../config/redis"
+import { redisClient } from "../redis/redis"
 import { PrismaClient, User } from '@prisma/client'
+import { generateSignedUrlSchema, publishVideo, queueTranscodingSchema, updateDetailsSchema } from "../schemas/uploadSchema/schema";
+
 const gcs = require('@google-cloud/storage');
 
 const prisma = new PrismaClient()
@@ -22,10 +24,22 @@ function getGCSUrl(segmentName:any) {
     return `https://storage.googleapis.com/${bucketName}/${segmentName}`;
   }
 
-  uploadRouter.put("/updateDetails", async (req, res) => {
-    const videoId = req.body.videoId
-    const title = req.body.title
-    const description = req.body.description
+
+
+uploadRouter.put("/updateDetails", async (req, res) => {
+
+    const  payload  = req.body;
+    const { success } = updateDetailsSchema.safeParse(payload)
+
+    if (!success) {
+        return res.status(411).json({
+            message: "Invalid inputs"
+        });
+    }
+
+    const videoId = payload.videoId
+    const title = payload.title
+    const description = payload.description
 
 
     const video = await prisma.video.update({
@@ -45,6 +59,16 @@ uploadRouter.get("/generateSignedUrlWrite", async (req, res) =>{
     if (!req.user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
+
+    const  payload  = req.query;
+    const { success } = generateSignedUrlSchema.safeParse(payload)
+    
+    if (!success) {
+        return res.status(411).json({
+            message: "Invalid inputs"
+        });
+    }
+
     const fileName = req.query.fileName
     const contentType  = req.query.contentType;
     const type = req.query.type
@@ -98,7 +122,7 @@ uploadRouter.get("/generateSignedUrlWrite", async (req, res) =>{
         
         const extension = (fileName as string).split(".").pop()
         filePath = `${video.id}/${video.id}.${extension}`
-        console.log(filePath)
+
         videoId = video.id;
 
         await prisma.video.update({
@@ -125,11 +149,10 @@ uploadRouter.get("/generateSignedUrlWrite", async (req, res) =>{
         })
     }
         
-        console.log(`Full Path: ${filePath}`)
+
         const [url] = await storage.bucket(bucketName).file(filePath).getSignedUrl(options);
         res.status(200).send({ signedUrl:url, videoId: videoId });
       } catch (error) {
-        console.error('Error generating signed URL:', error);
         res.status(500).send('Error generating signed URL');
       }
 })
@@ -174,7 +197,6 @@ uploadRouter.get("/generateSignedUrlRead", async (req, res) =>{
 
         res.status(200).send({ url, video: video.id });
       } catch (error) {
-        console.error('Error generating signed URL:', error);
         res.status(500).send('Error generating signed URL');
       }
 })
@@ -183,12 +205,21 @@ uploadRouter.post("/queueTranscoding", async (req, res) => {
     // console.log(req.file)
     
     try{
-        const videoId = req.body.videoId;
-        const  url = req.body.url;
+        
+        
         if (!req.user) {
             return res.status(401).json({ error: 'Unauthorized' });
           }
-        
+          const  payload  = req.body;
+          const { success } = queueTranscodingSchema.safeParse(payload)
+          
+          if (!success) {
+              return res.status(411).json({
+                  message: "Invalid inputs"
+              });
+          }
+          const videoId = payload.videoId;
+          const  url = payload.url;
           const user = await prisma.user.findFirst({
             where:{
                 googleId: (req.user as User).googleId
@@ -213,7 +244,7 @@ uploadRouter.post("/queueTranscoding", async (req, res) => {
 
         // const videoId = video.id;
         const jobId = videoQueue.id;
-        let payload = {
+        let videoPayload = {
             jobId: jobId,
             fieldname: 'videoFile',
             originalname: 'lake.mp4',
@@ -227,23 +258,56 @@ uploadRouter.post("/queueTranscoding", async (req, res) => {
             videoId: videoId,
             retries: 0
         }
-        console.log(video);
-        console.log(payload)
         // await redisClient.set()
-        await redisClient.lPush(redisConfig.queueName, JSON.stringify(payload))
+        await redisClient.lPush(redisConfig.queueName, JSON.stringify(videoPayload))
         res.status(200).json({
             message: "File added to the processing queue",
             userId: user?.id,
             jobId: jobId
         })
     } catch(error) {
-        console.log("Failed to add file to the processing queue", error)
         res.status(500).json({
             error: "Failed to add file to processing queue"
         });
     }
 });
 
+uploadRouter.put("/publish", async (req, res) => {
+    try{
+        
+        if (!req.user) {
+            return res.status(401).json({ error: 'Unauthorized' });
+          }
+          const  payload  = req.body;
+          const { success } = publishVideo.safeParse(payload)
+          
+          if (!success) {
+              return res.status(411).json({
+                  message: "Invalid inputs"
+              });
+          }
+          const videoId = payload.videoId;
+          
+        const video = await prisma.video.update({
+            where: {
+                id: videoId as string
+            },
+            data:{
+                published: true
+            }
+        })
+
+        res.status(200).json({
+            message: `VideoId: ${videoId} has been published`,
+            videoId: videoId,
+        })
+    } catch(error) {
+
+        res.status(500).json({
+            error: "Failed to publish video"
+        });
+    }
+});
 
 
 async function startServer() {

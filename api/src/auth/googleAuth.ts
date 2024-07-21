@@ -8,12 +8,12 @@ interface Users extends User{}
 
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID ?? "",
-    clientSecret: process.env.GOOGLE_CLIENT_ID ?? "",
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
     callbackURL: "http://localhost:3000/api/v1/auth/google/callback"
 },
 async (accessToken, refreshToken, profile, done) => {
     try{
-        console.log(profile)
+        // console.log(profile)
         let user = await prisma.user.findFirst({
             where: {
                 googleId: profile.id
@@ -29,11 +29,6 @@ async (accessToken, refreshToken, profile, done) => {
                     photo: profile.photos ? profile.photos[0].value : ""
                 }
             });
-            await prisma.channel.create({
-                data:{
-                    userId: user.id
-                }
-            })
         }
         done(null, user);
     } catch (error) {
