@@ -105,7 +105,7 @@ async function generateSignedUrlWrite(filename:any, contentType:any) {
     });
   
     ffmpeg.stderr.on('data', (data:any) => {
-      // console.error(`FFmpeg stderr: ${data}`);
+      // console.error(`FFmpeg err: ${data}`);
     });
   
     return new Promise((resolve, reject) => {
@@ -144,11 +144,11 @@ export async function uploadHLSContentToGCS(videoId: string) {
   });
 
   const transcodePromises = transcoding_config.map(video_config => transcodeAndUpload(video_config, videoId));
-  const hasThumbnail:boolean = await takeScreenshot(readSignedUrl as string, 20, "screenshot.png", metaData.duration, metaData.height)
+  const hasThumbnail:boolean = await takeScreenshot(readSignedUrl as string, 20, `${videoId}screenshot.png`, metaData.duration, metaData.height)
   // await convertImageToWebP("./screenshot.png", "./screenshot.webp")
   let thumbnailPath;
   if(hasThumbnail){
-    thumbnailPath = await uploadThumbnail(`${videoId}/sample_thumbnail.png`, "./screenshot.png")
+    thumbnailPath = await uploadThumbnail(`${videoId}/sample_thumbnail.png`, `./${videoId}screenshot.png`)
   }
   
   try {
@@ -157,7 +157,7 @@ export async function uploadHLSContentToGCS(videoId: string) {
     const playlistPromises = allSegmentNames.map((segmentNames, index) => {
       const resolution = transcoding_config[index];
       const playlistContent = generateM3U8Playlist(segmentNames);
-      const playlistFilePath = `./playlist_${resolution.width}x${resolution.height}.m3u8`;
+      const playlistFilePath = `./${videoId}_playlist_${resolution.width}x${resolution.height}.m3u8`;
       fs.writeFileSync(playlistFilePath, playlistContent);
       console.log(`Playlist file ${playlistFilePath} created.`);
 
@@ -167,7 +167,7 @@ export async function uploadHLSContentToGCS(videoId: string) {
     await Promise.all(playlistPromises);
 
     const playlistContent = generateMasterPlaylist(videoId)
-    const playlistFilePath = `./playlist.m3u8`;
+    const playlistFilePath = `./${videoId}playlist.m3u8`;
     fs.writeFileSync(playlistFilePath, playlistContent);
     console.log(`Playlist file ${playlistFilePath} created.`);
     const playlistPath = await uploadMasterPlaylist(`${videoId}/playlist.m3u8`, playlistFilePath)
@@ -181,8 +181,7 @@ export async function uploadHLSContentToGCS(videoId: string) {
 
 async function uploadThumbnail(destinationPath:string, localFilePath:any){
   const thumbnailSignedUrl = await generateSignedUrlWrite(destinationPath, 'image/png');
-    // fs.writeFileSync("playlist.m3u8", playlistSignedUrl);
-    // console.log(`Playlist file playlist.m3u8 created.`);
+
     try {
         await axios.put(thumbnailSignedUrl, fs.readFileSync(localFilePath), {
           headers: {
@@ -200,8 +199,7 @@ async function uploadThumbnail(destinationPath:string, localFilePath:any){
 
 async function uploadMasterPlaylist(destinationPath:string, localFilePath:any){
     const playlistSignedUrl = await generateSignedUrlWrite(destinationPath, 'application/x-mpegURL');
-    // fs.writeFileSync("playlist.m3u8", playlistSignedUrl);
-    // console.log(`Playlist file playlist.m3u8 created.`);
+
     try {
         await axios.put(playlistSignedUrl, fs.readFileSync(localFilePath), {
           headers: {
@@ -243,7 +241,7 @@ function generateM3U8Playlist(segmentNames:any) {
   let playlistContent = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:0\n`;
 
   segmentNames.forEach((segmentName:any, index:any) => {
-    const duration = index % 2 === 0 ? 4.8 : 3.2; 
+    const duration =  5; 
     playlistContent += `#EXTINF:${duration.toFixed(6)},\n${getGCSUrl(segmentName)}\n`;
   });
 

@@ -34,6 +34,7 @@ export const handleWebSocket = async (ws: WebSocket) => {
     });
 
     ws.on('close', async () => {
+        
         if (registeredUserId) {
             clients.delete(registeredUserId);
         }
