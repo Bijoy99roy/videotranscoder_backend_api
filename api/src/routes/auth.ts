@@ -1,6 +1,7 @@
 import express from "express";
 import { PrismaClient, User } from '@prisma/client'
 import passport from "passport";
+require('dotenv').config()
 import "../auth/googleAuth";
 const prisma = new PrismaClient()
 
@@ -12,9 +13,9 @@ authRouter.get("/google", passport.authenticate("google", {
     console.log("Login")
 });
 
-authRouter.get("/google/callback", passport.authenticate("google", {failureRedirect: "http://localhost:5173/"}),(req, res) => {
+authRouter.get("/google/callback", passport.authenticate("google", {failureRedirect: process.env.AUTH_REDIRECT_URL ?? ""}),(req, res) => {
     console.log("Logged IN")
-    res.redirect("http://localhost:5173/")
+    res.redirect(process.env.AUTH_REDIRECT_URL?? "")
 })
 
 authRouter.get('/current_user', (req, res) => {

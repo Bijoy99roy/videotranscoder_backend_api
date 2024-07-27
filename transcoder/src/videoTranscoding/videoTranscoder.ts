@@ -3,14 +3,15 @@ const axios = require('axios');
 const gcs = require('@google-cloud/storage');
 const fs = require('fs');
 const { PassThrough } = require('stream');
-import { v4 as uuidv4} from "uuid";
+require('dotenv').config()
 import { PrismaClient } from '@prisma/client'
 import { getVideoMetadata, takeScreenshot } from "../ffmpegManager/ffmpegHandler";
 
 const prisma = new PrismaClient()
 
 const bucketName = 'transcode-1';
-const storage = new gcs.Storage({ keyFilename: 'E:/Projects/gcs/analog-antler-425411-e6-b4766e9f647f.json' });
+console.log(process.env.GCS_KEYFILE)
+const storage = new gcs.Storage({ keyFilename: process.env.GCS_KEYFILE ?? "" });
 
 async function generateSignedUrlWrite(filename:any, contentType:any) {
     const options = {

@@ -5,6 +5,7 @@ import {redisConfig, gcsConfig} from "../config/config";
 import { v4 as uuidv4 } from "uuid";
 import { redisClient } from "../redis/redis"
 import { PrismaClient, User } from '@prisma/client'
+require('dotenv').config()
 import { generateSignedUrlSchema, publishVideo, queueTranscodingSchema, updateDetailsSchema } from "../schemas/uploadSchema/schema";
 
 const gcs = require('@google-cloud/storage');
@@ -17,7 +18,7 @@ const uploadRouter = express.Router();
 // const redisSubscriber = createClient();
 
 const bucketName = gcsConfig.bucketName;
-const storage = new gcs.Storage({ keyFilename: 'E:/Projects/gcs/analog-antler-425411-e6-b4766e9f647f.json' });
+const storage = new gcs.Storage({ keyFilename: process.env.GCS_KEYFILE ?? "" });
 
 
 function getGCSUrl(segmentName:any) {
